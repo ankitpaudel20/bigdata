@@ -3,6 +3,7 @@ from flask_cors import CORS
 from pymongo import MongoClient
 from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
+from elasticsearch.helpers.errors import BulkIndexError
 from bson.json_util import dumps
 from dotenv import load_dotenv
 import os
@@ -34,27 +35,14 @@ def get_movies():
 def load_movies():
     # Get all documents from MongoDB
     documents = collection.find()
-    # Create index in ElasticSearch
-    es.indices.create(index='movies_index', ignore=400)
     # Prepare data for bulk indexing
-    bulk_data = []
     for document in documents:
-        data = dumps(document)
-        bulk_data.append({
-            '_index': 'movies_index',
-            '_id': document['_id'],
-            '_source': data
-        })
-    # Bulk index data in ElasticSearch
-    response = bulk(es, bulk_data)
-    return jsonify({'message': f'{len(response)} documents indexed successfully'}), 200
+        # Convert ObjectId to string
+        document.pop('_id',None)
+        es.index(index='movies_index', body=document)
 
-# Insert document into MongoDB
-@app.route('/insert_movies', methods=['POST'])
-def insert_movies():
-    data = request.json
-    result = collection.insert_one(data)
-    return jsonify({'message': 'Document inserted successfully', 'id': str(result.inserted_id)}), 200
+    return 'Data loaded successfully'
+
 
 # Search documents in ElasticSearch
 @app.route('/search_movies', methods=['POST'])
@@ -64,7 +52,7 @@ def search_movies():
         "query": {
             "multi_match": {
                 "query": data['query'],
-                "fields": ["title^3", "description^2", "genre^2"]
+                "fields": ["title^3", "description^2", "genre^2", "date"]
             }
         }
     }
