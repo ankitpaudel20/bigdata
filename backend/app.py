@@ -4,7 +4,7 @@ from pymongo import MongoClient
 from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
 from elasticsearch.helpers.errors import BulkIndexError
-from bson.json_util import dumps
+from bson.json_util import dumps, loads
 from dotenv import load_dotenv
 import os
 
@@ -18,48 +18,64 @@ mongo_uri = os.getenv("MONGO_URI")
 client = MongoClient(mongo_uri)
 
 # Select the database and collection you want to use
-db = client["movies_db"]
-collection = db["movie"]
+db = client["author_db"]
+collection = db["authors"]
 
 # ElasticSearch connection
-es = Elasticsearch(os.getenv("ELASTIC_URI"))
+es = Elasticsearch(os.getenv("ELASTIC_URI"), api_key=os.getenv("ELASTIC_API_KEY"))
 
-@app.route('/', methods=['GET'])
+
+@app.route("/enter_authors", methods=["GET"])
 def get_movies():
     # Get all documents from MongoDB
-    documents = collection.find()
-    response = dumps(documents)
-    return response, 200
+    documents = [
+        {"name": "Aayush Lamichhane", "roll": "075BCT004"},
+        {"name": "Aayush Neupane", "roll": "075BCT006"},
+        {"name": "Ankit Paudel", "roll": "075BCT013"},
+        {"name": "Ashish Lamsal", "roll": "075BCT016"},
+    ]
 
-@app.route('/load_movies', methods=['GET'])
+    # Insert the document into the collection
+    result = collection.insert_many(documents)
+    return jsonify({"message": "Data inserted successfully"})
+
+
+def get_data(data):
+    data["_id"] = str(data["_id"])
+    return data
+
+
+@app.route("/load_authors", methods=["GET"])
 def load_movies():
     # Get all documents from MongoDB
     documents = collection.find()
-    # Prepare data for bulk indexing
-    for document in documents:
-        # Convert ObjectId to string
-        document.pop('_id',None)
-        es.index(index='movies_index', body=document)
-
-    return 'Data loaded successfully'
+    return jsonify({"message": [get_data(doc) for doc in documents]})
 
 
 # Search documents in ElasticSearch
-@app.route('/search_movies', methods=['GET'])
-def search_movies():
+@app.route("/search_articles", methods=["POST"])
+def search_articles():
     data = request.json
     query = {
         "query": {
             "multi_match": {
-                "query": data['query'],
-                "fields": ["title^3", "description^2", "genre^2", "date"]
+                "query": data["query"],
             }
         }
     }
-    result = es.search(index='movies_index', body=query)
-    hits = result['hits']['hits']
-    response = [{'id': hit['_id'], 'title': hit['_source']['title'], 'description': hit['_source']['description']} for hit in hits]
-    return jsonify({'hits': response}), 200
+    result = es.search(body=query)
+    hits = result["hits"]["hits"]
+    response = [
+        {
+            "id": hit["_id"],
+            "title": hit["_source"]["headline"],
+            "description": hit["_source"]["short_description"],
+            "link": hit["_source"]["link"],
+        }
+        for hit in hits
+    ]
+    return jsonify({"hits": response}), 200
 
-if __name__ == '__main__':
-    app.run(debug=True, host='localhost', port=5000)
+
+if __name__ == "__main__":
+    app.run(debug=True, host="localhost", port=5000)
